@@ -80,35 +80,44 @@ end
 """
     tickprojectilelist(pos, vel, ticks)
 
-Accurate state of a projectile in a different time, given an initial state. Ticks can be negative to look into the past.
+Accurate state of a projectile in a different time, given an initial state.
 
-Returns a Vector of tuples in the form (pos::Vector{Float64}, vel::Vector{Float64})
+Returns a NamedTuple of Vectors in the form (pos::Vector{Vector{Float64}}, vel::Vector{Vector{Float64}})
 """
-function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
-  pos1 = pos
-  vel1 = vel
-  D = 0.99f0
-  g = Float32[0, -0.03, 0]
-  posout = []
-  velout = []
-  if ticks > 0
-    for i ∈ 1:ticks
-      pos1 += vel1
-      vel1 *= D
-      vel1 += g
-      push!(posout, pos1);
-      push!(velout, vel1);
-    end
-  else
-    for i ∈ 1:(-ticks)
-      vel1 -= g
-      vel1 /= D
-      pos1 -= vel1
-      push!(posout, pos1);
-      push!(velout, vel1);
-    end
+function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::UnitRange)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
+  pos1::Vector{Float64} = pos
+  vel1::Vector{Float64} = vel
+  posout::Vector{Float64} = []
+  velout::Vector{Float64} = []
+  for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
+    pos1 += vel1
+    vel1 *= 0.99f0
+    vel1 += [0f0, -0.03f0, 0f0]
+    push!(posout, pos1);
+    push!(velout, vel1);
   end
-  (pos=posout, vel=velout)
+  (pos=posout[ticks], vel=velout[ticks])
+end
+
+"""
+    tickprojectilelist(pos, vel, ticks)
+
+Accurate state of a projectile in a different time, given an initial state.
+
+Returns a NamedTuple of Vectors in the form (pos::Vector{Vector{Float64}}, vel::Vector{Vector{Float64}})
+"""
+function tickprojectilelist(pos::Float64, vel::Float64, ticks::UnitRange)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+  pos1::Float64 = pos
+  vel1::Float64 = vel
+  posout::Vector{Float64} = []
+  velout::Vector{Float64} = []
+  for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
+    pos1 += vel1
+    vel1 = vel1 * 0.99f0 -0.03f0
+    push!(posout, pos1);
+    push!(velout, vel1);
+  end
+  (pos=posout[ticks], vel=velout[ticks])
 end
 
 """

@@ -24,11 +24,9 @@ end
     Scans over a list of heights and returns the closest [count] TNT positions, where the TNT is standing on a block of size [options].
 """
 function best_alignment(options::Vector{Float64}, eyeHeight::Float32, heights::Vector{Float64})
-  deltas = []
-  indices = []
-  e = Float64(0.98f0*0.0625e0)
-  heights_ = heights .+ eyeHeight .- e
-  for y in heights_
+  deltas::Vector{Float64} = []
+  indices::Vector{Int64} = []
+  for y in heights .+ eyeHeight .- Float64(0.98f0*0.0625e0)
     d = y - floor(y) .- options
     i::Int64 = partialsortperm(d, 1; by = abs)
     push!(deltas, d[i])
@@ -59,31 +57,30 @@ function best_alignment(blocktype::String, entitytype::String, heights::Vector{F
   else return [] end
 end
 
-function recursive_bounces(pos::Vector{Float64}, vel::Vector{Float64}, tickranges::Vector{UnitRange{Int64}})
-  ticks = tickprojectilelist(pos, vel, tickranges[1][length(tickranges[1])])
-  positions = ticks[:pos][tickranges[1]]
-  velout = ticks[:vel][tickranges[1]]
-  if length(tickranges) > 1
-    posout = Vector{Float64}[]
-    velout = Vector{Float64}[]
-    addressout = Vector{Float64}[]
-    i = 1
-    for pos in positions
-      bounces = recursive_bounces(pos, vel, tickranges[2:length(tickranges)])
-      for pos in bounces[:pos]
+function recursive_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}})
+  ticks = tickprojectilelist(pos, vel, tickranges[1])
+  l::UInt8 = length(tickranges)
+  if l > 0x1
+    posout::Vector{Float64} = []
+    velout::Vector{Float64} = []
+    addressout = Vector{UInt8}[]
+    i::UInt8 = 0x1
+    for pos in ticks[:pos]
+      bounces = recursive_bounces(pos, vel, tickranges[0x2:l])
+      for pos::Float64 in bounces[:pos]
         push!(posout, pos)
       end
-      for vel in bounces[:vel]
+      for vel::Float64 in bounces[:vel]
         push!(velout, vel)
       end
       for addr in bounces[:addr]
         push!(addressout, [i, addr...])
       end
-      i += 1
+      i += 0x1
     end
     return (pos=posout, vel=velout, addr=addressout)
   end
-  return (pos=positions, vel=velout, addr=tickranges[1])
+  return (pos=ticks[:pos], vel=ticks[:vel], addr=tickranges[1])
 end
 
 end
