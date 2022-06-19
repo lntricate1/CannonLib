@@ -1,0 +1,8 @@
+name = "CannonLib"
+uuid = "7c116c79-9ae5-4432-969c-cc96ac84195a"
+authors = ["Ellie <intricatebread@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+RowEchelon = "af85af4c-bcd5-5d23-b03a-a909639aa875"
