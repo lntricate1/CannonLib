@@ -69,9 +69,9 @@ function tickprojectile(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1
     end
   else
     for i ∈ 1:(-ticks)
-      pos1 -= vel1
-      vel1 /= D
       vel1 -= g
+      vel1 /= D
+      pos1 -= vel1
     end
   end
   (pos=pos1, vel=vel1)
@@ -84,28 +84,31 @@ Accurate state of a projectile in a different time, given an initial state. Tick
 
 Returns a Vector of tuples in the form (pos::Vector{Float64}, vel::Vector{Float64})
 """
-function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::Vector{NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}}
+function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
   pos1 = pos
   vel1 = vel
   D = 0.99f0
   g = Float32[0, -0.03, 0]
-  out = []
+  posout = []
+  velout = []
   if ticks > 0
     for i ∈ 1:ticks
       pos1 += vel1
       vel1 *= D
       vel1 += g
-      push!(out, (pos=pos1, vel=vel1))
+      push!(posout, pos1);
+      push!(velout, vel1);
     end
   else
     for i ∈ 1:(-ticks)
-      pos1 -= vel1
-      vel1 /= D
       vel1 -= g
-      push!(out, (pos=pos1, vel=vel1))
+      vel1 /= D
+      pos1 -= vel1
+      push!(posout, pos1);
+      push!(velout, vel1);
     end
   end
-  out
+  (pos=posout, vel=velout)
 end
 
 """
@@ -126,9 +129,9 @@ function tickprojectile!(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=
     end
   else
     for i ∈ 1:(-ticks)
-      pos -= vel
-      vel /= D
       vel -= g
+      vel /= D
+      pos -= vel
     end
   end
   (pos=pos, vel=vel)
