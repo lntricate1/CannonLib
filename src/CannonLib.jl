@@ -2,8 +2,17 @@
 module CannonLib
 
 include("Entity.jl")
-import .Entity.tickprojectilelist
-export cannonangles, best_alignment, recursive_bounces
+import .Entity.tickprojectileyposlist
+import .Entity.projectile_pos_y_table
+export cannonangles, best_alignment, recursive_bounces, recursive_bounces_lookup
+
+function projectile_pos_y_table_f(range, d)
+  out::Vector{Float64} = []
+  for i ∈ range
+    push!(out, projectile_pos_y_table[i] + d)
+  end
+  out
+end
 
 """
     cannonangles(tnt::Int)
@@ -18,6 +27,12 @@ function cannonangles(tnt::Int)
   count*8 + tnt*8
 end
 
+function closestin(y::Float64, options::Vector{Float64})
+    d = y - floor(y) .- options
+    i::Int64 = partialsortperm(d, 1; by = abs)
+    (i, d[i])
+end
+
 """
     best_alignment(options::Vector{Float64}, eyeHeight::Float64, heights::Vector{Float64}, count::Int64)
 
@@ -26,10 +41,9 @@ end
 function best_alignment(options::Vector{Float64}, eyeHeight::Float32, heights::Vector{Float64})
   deltas::Vector{Float64} = []
   indices::Vector{Int64} = []
-  for y in heights .+ eyeHeight .- Float64(0.98f0*0.0625e0)
-    d = y - floor(y) .- options
-    i::Int64 = partialsortperm(d, 1; by = abs)
-    push!(deltas, d[i])
+  for y ∈ heights .+ eyeHeight .- Float64(0.98f0*0.0625e0)
+    i, d = closestin(y, options)
+    push!(deltas, d)
     push!(indices, i)
   end
 
@@ -41,7 +55,7 @@ end
 """
     best_alignment(blocktype::String, entitytype::String, heights::Vector{Float64}, count::Int64)
 
-    Scans over a list of heights and returns the closest [count] TNT positions, where the TNT is standing on a block in the category [blocktype].
+    Scans over a list of heights and returns the closest [count] TNT positions, where the TNT is standing on a block ∈ the category [blocktype].
 """
 function best_alignment(blocktype::String, entitytype::String, heights::Vector{Float64})
   eyeheight = 0.25f0*0.85f0
@@ -57,30 +71,54 @@ function best_alignment(blocktype::String, entitytype::String, heights::Vector{F
   else return [] end
 end
 
-function recursive_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}})
-  ticks = tickprojectilelist(pos, vel, tickranges[1])
+function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64)
+  positions::Vector{Float64} = tickprojectileyposlist(pos, vel, tickranges[1])
   l::UInt8 = length(tickranges)
   if l > 0x1
     posout::Vector{Float64} = []
-    velout::Vector{Float64} = []
-    addressout = Vector{UInt8}[]
-    i::UInt8 = 0x1
-    for pos in ticks[:pos]
-      bounces = recursive_bounces(pos, vel, tickranges[0x2:l])
-      for pos::Float64 in bounces[:pos]
-        push!(posout, pos)
+    addressout::Vector{Vector{UInt8}} = []
+    firstaddress::UInt8 = UInt8(tickranges[1][1]) - 0x1
+    for i::UInt8 ∈ eachindex(positions)
+      pos = positions[i]
+      range = tickranges[0x2:l]
+      range[0x1] = range[0x1][firstaddress + i:length(range[0x1])]
+      bounces = recursive_bounces(options, pos, 1e0, range, limit)
+      for j in eachindex(bounces[:pos])
+        i, d = closestin(bounces[:pos][j], options)
+        if d < limit
+          push!(posout, bounces[:pos][j])
+          push!(addressout, [firstaddress + i, bounces[:addr][j]...])
+        end
       end
-      for vel::Float64 in bounces[:vel]
-        push!(velout, vel)
-      end
-      for addr in bounces[:addr]
-        push!(addressout, [i, addr...])
-      end
-      i += 0x1
     end
-    return (pos=posout, vel=velout, addr=addressout)
+    return (pos=posout, addr=addressout)
   end
-  return (pos=ticks[:pos], vel=ticks[:vel], addr=tickranges[1])
+  return (pos=positions, addr=tickranges[1])
+end
+
+function recursive_bounces_lookup(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64; table::Vector{Float64} = projectile_pos_y_table)
+  positions::Vector{Float64} = view(table, tickranges[1]) .+ pos
+  l::UInt8 = length(tickranges)
+  if l > 0x1
+    posout::Vector{Float64} = []
+    addressout::Vector{Vector{UInt8}} = []
+    firstaddress::UInt8 = tickranges[1][1] - 0x1
+    for i::UInt8 ∈ eachindex(positions)
+      pos = positions[i]
+      range = tickranges[0x2:l]
+      range[0x1] = range[0x1][firstaddress + i:length(range[0x1])]
+      bounces = recursive_bounces_lookup(options, pos, 1e0, range, limit)
+      for j in eachindex(bounces[:pos])
+        i, d = closestin(bounces[:pos][j], options)
+        if d < limit
+          push!(posout, bounces[:pos][j])
+          push!(addressout, [firstaddress + i, bounces[:addr][j]...])
+        end
+      end
+    end
+    return (pos=posout, addr=addressout)
+  end
+  return (pos=positions, addr=tickranges[1])
 end
 
 end
