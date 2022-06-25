@@ -67,11 +67,13 @@ function best_alignment(blocktype::String, entitytype::String, heights::Vector{F
       else throw(ArgumentError("Invalid entity type")) end
   end
 
+  if blocktype == "all" return best_alignment([0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0, eyeheight, heights)
+  if blocktype == "movable_0ticks" return best_alignment([0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0, eyeheight, heights)
   if blocktype == "movable" return best_alignment([0,1,3,8,9,9.5,10,14,15,16]./16e0, eyeheight, heights)
   else return [] end
 end
 
-function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64, eyeheight::Float32; explosionheight::Float64 = Float64(0.98f0*0.0625e0))
+function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64, eyeheight::Float32; explosionheight::Float64 = Float64(0.98f0*0.0625e0), addr::Vector{UInt8} = UInt8[])
   positions::Vector{Float64} = tickprojectileyposlist(pos, vel, tickranges[1])
   posout::Vector{Float64} = []
   addressout::Vector{Vector{UInt8}} = []
@@ -84,55 +86,30 @@ function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64,
       pos = positions[i]
       range = tickranges[0x2:l]
       range[0x1] = range[0x1][firstaddress + i:length(range[0x1])]
-      bounces = recursive_bounces(options, pos, 1e0, range, limit, eyeheight; explosionheight=explosionheight)
-      for j in eachindex(bounces[:pos])
-        index, d = closestin(bounces[:pos][j] + eyeheight - explosionheight, options)
-        if abs(d) < limit
-          push!(addressout, [firstaddress + i, bounces[:addr][j]...])
-          push!(posout, bounces[:pos][j])
-          push!(indexout, index)
-          push!(deltaout, d)
-        end
+      bounces = recursive_bounces(options, pos, 1e0, range, limit, eyeheight; explosionheight=explosionheight, addr=vcat(addr, firstaddress + i))
+      if length(bounces[:addr]) > 0x0
+        addressout = vcat(addressout, bounces[:addr])
+        posout = vcat(posout, bounces[:pos])
+        indexout = vcat(indexout, bounces[:index])
+        deltaout = vcat(deltaout, bounces[:delta])
       end
     end
     return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
   end
 
-  for i in eachindex(positions)
-    index, d = closestin(positions[i] + eyeheight - explosionheight, options)
-    if abs(d) < limit
-      push!(addressout, [firstaddress + i])
-      push!(posout, positions[i])
-      push!(indexout, index)
-      push!(deltaout, d)
+  for j in 0x0:length(addr) + 0x1
+    for i in eachindex(positions)
+      index, d = closestin(positions[i] + eyeheight - explosionheight, options)
+      if abs(d) < limit
+        push!(addressout, vcat(addr, firstaddress + i, j))
+        push!(posout, positions[i])
+        push!(indexout, index)
+        push!(deltaout, d)
+      end
+      positions[i] += 0.51e0
     end
   end
   return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
 end
-
-#function recursive_bounces_lookup(options::Vector{Float64}, pos::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64; table::Vector{Float64} = projectile_pos_y_table)
-#  positions::Vector{Float64} = view(table, tickranges[1]) .+ pos
-#  l::UInt8 = length(tickranges)
-#  if l > 0x1
-#    posout::Vector{Float64} = []
-#    addressout::Vector{Vector{UInt8}} = []
-#    firstaddress::UInt8 = tickranges[1][1] - 0x1
-#    for i::UInt8 ∈ eachindex(positions)
-#      pos = positions[i]
-#      range = tickranges[0x2:l]
-#      range[0x1] = range[0x1][firstaddress + i:length(range[0x1])]
-#      bounces = recursive_bounces_lookup(options, pos, 1e0, range, limit)
-#      for j in eachindex(bounces[:pos])
-#        i, d = closestin(bounces[:pos][j], options)
-#        if d < limit
-#          push!(posout, bounces[:pos][j])
-#          push!(addressout, [firstaddress + i, bounces[:addr][j]...])
-#        end
-#      end
-#    end
-#    return (pos=posout, addr=addressout)
-#  end
-#  return (pos=positions, addr=tickranges[1])
-#end
 
 end

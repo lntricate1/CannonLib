@@ -118,7 +118,7 @@ function tickprojectilelist(pos::Float64, vel::Float64, ticks::UnitRange)::Named
   velout::Vector{Float64} = []
   for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
     pos1 += vel1
-    vel1 = vel1 * 0.99f0 -0.03f0
+    vel1 = vel1 * 0.99f0 - 0.03f0
     push!(posout, pos1);
     push!(velout, vel1);
   end
@@ -136,12 +136,16 @@ function tickprojectileyposlist(pos::Float64, vel::Float64, ticks::UnitRange)::V
   pos1::Float64 = pos
   vel1::Float64 = vel
   posout::Vector{Float64} = []
-  for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
+  for Nothing ∈ 1:ticks[1]-1
     pos1 += vel1
-    vel1 = vel1 * 0.99f0 -0.03f0
+    vel1 = vel1 * 0.99f0 - 0.03f0
+  end
+  for Nothing ∈ ticks
+    pos1 += vel1
+    vel1 = vel1 * 0.99f0 - 0.03f0
     push!(posout, pos1);
   end
-  posout[ticks]
+  posout
 end
 
 """
