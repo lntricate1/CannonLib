@@ -67,10 +67,10 @@ function best_alignment(blocktype::String, entitytype::String, heights::Vector{F
       else throw(ArgumentError("Invalid entity type")) end
   end
 
-  if blocktype == "all" return best_alignment([0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0, eyeheight, heights)
-  if blocktype == "movable_0ticks" return best_alignment([0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0, eyeheight, heights)
-  if blocktype == "movable" return best_alignment([0,1,3,8,9,9.5,10,14,15,16]./16e0, eyeheight, heights)
-  else return [] end
+  if blocktype == "all" return best_alignment([0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0, eyeheight, heights) end
+  if blocktype == "movable_0ticks" return best_alignment([0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0, eyeheight, heights) end
+  if blocktype == "movable" return best_alignment([0,1,3,8,9,9.5,10,14,15,16]./16e0, eyeheight, heights) end
+  return []
 end
 
 function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64, eyeheight::Float32; explosionheight::Float64 = Float64(0.98f0*0.0625e0), addr::Vector{UInt8} = UInt8[])
