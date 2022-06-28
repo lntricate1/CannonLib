@@ -2,9 +2,11 @@
 module CannonLib
 
 include("Entity.jl")
+using Combinatorics
 import .Entity.tickprojectileyposlist
+import .Entity.tickprojectilelist
 import .Entity.projectile_pos_y_table
-export cannonangles, closestin, best_alignment, recursive_bounces, recursive_bounces_lookup
+export cannonangles, closestin, best_alignment, recursive_bounces, calculate_all_bounces
 
 function projectile_pos_y_table_f(range, d)
   out::Vector{Float64} = []
@@ -97,7 +99,7 @@ function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64,
     return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
   end
 
-  for j in 0x0:length(addr) + 0x1
+  for j in 0x0:length(addr)
     for i in eachindex(positions)
       index, d = closestin(positions[i] + eyeheight - explosionheight, options)
       if abs(d) < limit
@@ -110,6 +112,84 @@ function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64,
     end
   end
   return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
+end
+
+function calculate_all_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, entity::String, blocktype::String, threshold::Float64)
+  eyeheight = 0.25f0*0.85f0
+  if entity != "ender_pearl" && entity != "snowball" && entity != "item" && entity != "fishing_bobber"
+    if entity == "tnt" eyeheight = 0f0
+    elseif entity == "arrow" eyeheight = 0.13f0
+    elseif entity == "player" eyeheight = 0.4f0
+    elseif entity == "falling_block" eyeheight = 0.98f0*0.85f0
+      else throw(ArgumentError("Invalid entity type")) end
+  end
+
+  heights::Vector{Float64} = [0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0
+  if blocktype == "movable_0ticks" heights = [0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0 end
+  if blocktype == "movable" heights = [0,1,3,8,9,9.5,10,14,15,16]./16e0 end
+
+  addr, poses, indices, deltas = recursive_bounces(heights, pos, vel, tickranges, threshold, eyeheight)
+
+  good_bounces::NamedTuple{(:pos, :delta, :block, :bounces), Tuple{Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{NamedTuple{(:addr, :pos, :vel), Tuple{Vector{Vector{Int8}}, Vector{Vector{Float64}}, Vector{Vector{Float64}}}}}}} = (pos=[], delta=[], block=[], bounces=[])
+  for i in eachindex(addr)
+    good_bounces_internal::NamedTuple{(:addr, :pos, :vel), Tuple{Vector{Vector{Int8}}, Vector{Vector{Float64}}, Vector{Vector{Float64}}}} = (addr=[], pos=[], vel=[])
+    for j in permutations(view(addr[i], 1:length(tickranges)))
+      for k in combinations([n for n ∈ 1:length(tickranges) - 1], addr[i][end])
+        py::Vector{Float64} = [pos]
+        vy::Vector{Float64} = [1e0]
+        comb::Vector{Int8} = [j[1]]
+        for l in eachindex(j)
+          ticks = tickprojectilelist(py[end], 1e0, 1:j[l])
+          py = vcat(py, ticks[:pos][1:end - 1])
+          vy = vcat(vy, ticks[:vel][1:end - 1])
+
+          mod1 = ticks[:pos][end] - floor(ticks[:pos][end])
+          if l < length(j)
+            if l ∈ k # +0.51 case
+              if mod1 > 0.5e0 && mod1 < 0.75e0 || mod1 < 0.25e0
+                @goto escape_label end
+              push!(vy, 1e0)
+              if mod1 > 0.5e0 # +0.51 case
+                push!(py, ticks[:pos][end] + 0.51e0)
+                push!(comb, j[l + 1])
+              else # + 1.51 case
+                push!(py, ticks[:pos][end])
+                push!(vy, 1e0)
+                push!(py, ticks[:pos][end] + 1.51e0)
+                push!(comb, j[l + 1] + 1)
+              end
+            else # +0 case
+              if mod1 > 0.25e0 && mod1 < 0.5e0
+                @goto escape_label end
+              push!(vy, 1e0)
+              push!(py, ticks[:pos][end])
+              if mod1 <= 0.25e0 || mod1 >= 0.75e0 # +1 case
+                push!(vy, 1e0)
+                push!(py, ticks[:pos][end] + 1e0)
+                push!(comb, j[l + 1] + 1)
+              else # +0 case
+                push!(comb, -Int8(j[l + 1]))
+              end
+            end
+          else
+              push!(vy, ticks[:vel][end])
+              push!(py, ticks[:pos][end])
+          end
+        end
+        push!(good_bounces_internal[:addr], comb)
+        push!(good_bounces_internal[:pos], py)
+        push!(good_bounces_internal[:vel], vy)
+        @label escape_label
+      end
+    end
+    if length(good_bounces_internal[:addr]) > 0
+      push!(good_bounces[:pos], poses[i])
+      push!(good_bounces[:delta], deltas[i])
+      push!(good_bounces[:block], heights[indices[i]])
+      push!(good_bounces[:bounces], good_bounces_internal)
+    end
+  end
+  good_bounces
 end
 
 end
