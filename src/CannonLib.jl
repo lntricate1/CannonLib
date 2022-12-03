@@ -114,6 +114,16 @@ function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64,
   return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
 end
 
+"""
+    calculate_all_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, entity::String, blocktype::String, threshold::Float64)
+
+    Calculates all bounces starting at the state [pos, vel], where each bounce checks its threshold ticks from [tickranges], and within [threshold] of the explosion.
+
+    Example usage:
+    ```
+    pos, delta, block, bounces = calculate_all_bounces(0.5e0, 1e0, [0x1:0x64 for i in 1:2], "ender_pearl", "all", 1e-4);[pos delta block [[sort!(j, by=abs) for j in i.addr] for i in bounces]][sortperm(delta; by=abs),:]
+    ```
+"""
 function calculate_all_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, entity::String, blocktype::String, threshold::Float64)
   eyeheight = 0.25f0*0.85f0
   if entity != "ender_pearl" && entity != "snowball" && entity != "item" && entity != "fishing_bobber"
