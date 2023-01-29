@@ -2,11 +2,27 @@
 module CannonLib
 
 include("Entity.jl")
-using Combinatorics
-import .Entity.tickprojectileyposlist
-import .Entity.tickprojectilelist
+import .Entity.tickprojectiley
 import .Entity.projectile_pos_y_table
-export cannonangles, closestin, best_alignment, recursive_bounces, calculate_all_bounces
+export blockdict, eyeheightdict, cannondict;
+export cannonangles, cannon_destinations, cannon_encode, get_slime_bounces, sim_bounces
+
+const blockdict = Dict([
+"all" => (0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16)./16 .+ 0.0625e0*0.98f0,
+"movable" => (0,1,3,8,9,9.5,10,14,15,16)./16 .+ 0.0625e0*0.98f0,
+"movable_0ticks" => (0,1,2,3,4,6,8,9,9.5,10,12,14,15,16)./16 .+ 0.0625e0*0.98f0,
+])
+
+const eyeheightdict = Dict([
+"ender_pearl" => 0.2125f0,
+"snowball" => 0.2125f0,
+"player" => 0.4f0,
+])
+
+const cannondict = Dict([
+"day6" => (efficiencyaxis=0.5948991084261209e0, basketparity=false, bits=[1764 588 588 252 168 84 42 21 14 7 4 2 1; ones(Int64, 13)'], sides=("red", "blue")),
+"ghost" => (efficiencyaxis=0.0, basketparity=false, bits=[5219 448 28 7 1;4 4 4 2 3], sides=("red", "blue")),
+])
 
 function projectile_pos_y_table_f(range, d)
   out::Vector{Float64} = []
@@ -29,177 +45,280 @@ function cannonangles(tnt::Int)
   count*8 + tnt*8
 end
 
-function closestin(y::Float64, options::Vector{Float64})
-    d = y - floor(y) .- options
-    i::Int64 = partialsortperm(d, 1; by = abs)
-    (i, d[i])
-end
-
 """
-    best_alignment(options::Vector{Float64}, eyeHeight::Float64, heights::Vector{Float64}, count::Int64)
+    cannon_destinations(efficiencyaxis, startx, startz, endx, endz, ticks)
 
-    Scans over a list of heights and returns the closest [count] TNT positions, where the TNT is standing on a block of size [options].
+Given an efficiency, start position, and target position, returns the tnt count per basket corner.
+
+Returns (tnt_northwest::Vector{Int64}, tnt_southwest::Vector{Int64}, final_pos_x::Vector{Float64}, final_pos_z::Vector{Float64}, distance::Vector{Float64}).
+
+# Arguments
+- `efficiencyaxis::Float64`: The velocity given to the projectile in each horizontal axis by 1 tnt. Can be obtained by looking at the output of `/log explosions full` to see applied velocity.
+- `startx::Float64`: The projectile starting x position.
+- `startz::Float64`: The projectile starting z position.
+- `endx::Float64`: The projectile ending x position.
+- `endz::Float64`: The projectile ending z position.
+- `ticks::Int64`: The maximum number of ticks for the projectile to fly.
 """
-function best_alignment(options::Vector{Float64}, eyeHeight::Float32, heights::Vector{Float64})
-  deltas::Vector{Float64} = []
-  indices::Vector{Int64} = []
-  for y ∈ heights .+ eyeHeight .- Float64(0.98f0*0.0625e0)
-    i, d = closestin(y, options)
-    push!(deltas, d)
-    push!(indices, i)
+function cannon_destinations(efficiencyaxis::Float64, startx::Float64, startz::Float64, endx::Float64, endz::Float64, ticks::Int64)
+  dx = endx - startx
+  dz = endz - startz
+  tnt_northwest = []
+  tnt_southwest = []
+  pos_x = []
+  pos_z = []
+  dist = []
+  for t ∈ 1:ticks
+    deltap_over_v = 100*(1 - 0.99^t)
+    vx, vz = (dx, dz)./deltap_over_v
+    tntnw, tntsw = round.(Int64, (vx + vz, vx - vz)./(2*efficiencyaxis))
+    finalx, finalz = (tntnw + tntsw, tntnw - tntsw).*(deltap_over_v*efficiencyaxis) .+ (startx, startz)
+    push!(tnt_northwest, tntnw)
+    push!(tnt_southwest, tntsw)
+    push!(pos_x, finalx)
+    push!(pos_z, finalz)
+    push!(dist, sqrt((finalx - endx)^2 + (finalz - endz)^2))
   end
-
-  p = sortperm(deltas; by = abs, alg=QuickSort)
-  range = 1:length(p)
-  (indices=p, blockheights=options[indices[range]], deltas=deltas[range])
+  println("ticks, tnt_northwest, tnt_southwest, pos_x, pos_z, distance:")
+  display([[1:ticks...] tnt_northwest tnt_southwest pos_x pos_z dist])
+  return (tnt_northwest=tnt_northwest, tnt_southwest=tnt_southwest, final_pos_x=pos_x, final_pos_z=pos_z, distance=dist)
 end
 
 """
-    best_alignment(blocktype::String, entitytype::String, heights::Vector{Float64}, count::Int64)
+    cannon_destinations(cannon, startx, startz, endx, endz, ticks)
 
-    Scans over a list of heights and returns the closest [count] TNT positions, where the TNT is standing on a block ∈ the category [blocktype].
+Given a cannon, start position, and target position, returns the tnt count per basket corner.
+
+Returns (tnt_northwest::Vector{Int64}, tnt_southwest::Vector{Int64}, final_pos_x::Vector{Float64}, final_pos_z::Vector{Float64}, distance::Vector{Float64}).
+
+# Arguments
+- `cannon::String`: The name of the cannon.
+- `startx::Float64`: The projectile starting x position.
+- `startz::Float64`: The projectile starting z position.
+- `endx::Float64`: The projectile ending x position.
+- `endz::Float64`: The projectile ending z position.
+- `ticks::Int64`: The maximum number of ticks for the projectile to fly.
 """
-function best_alignment(blocktype::String, entitytype::String, heights::Vector{Float64})
-  eyeheight = 0.25f0*0.85f0
-  if entitytype != "ender_pearl" && entitytype != "snowball" && entitytype != "item" && entitytype != "fishing_bobber"
-    if entitytype == "tnt" eyeheight = 0f0
-    elseif entitytype == "arrow" eyeheight = 0.13f0
-    elseif entitytype == "player" eyeheight = 0.4f0
-    elseif entitytype == "falling_block" eyeheight = 0.98f0*0.85f0
-      else throw(ArgumentError("Invalid entity type")) end
+cannon_destinations(cannon::String, startx::Float64, startz::Float64, endx::Float64, endz::Float64, ticks::Int64) = cannon_destinations(cannondict[cannon][:efficiencyaxis], startx, startz, endx, endz, ticks)
+
+function cannon_encode(tnt_northwest::Int64, tnt_southwest::Int64, parity::Bool, bits::Matrix{Int64})
+  case = (tnt_northwest > 0) << 0x1 + (tnt_southwest > 0)
+  swap = Bool(case & 0x2 == 0x2) ⊻ parity
+  dir = ('w', 'n', 's', 'e')[case+1]
+  bits_west = []
+  bits_east = []
+  tnt_northwest = abs(tnt_northwest)
+  tnt_southwest = abs(tnt_southwest)
+  for i ∈ eachindex(bits[1,:])
+    bit_west = min(tnt_northwest ÷ bits[1,i], bits[2,i])
+    bit_east = min(tnt_southwest ÷ bits[1,i], bits[2,i])
+    tnt_northwest = tnt_northwest - bit_west * bits[1,i]
+    tnt_southwest = tnt_southwest - bit_east * bits[1,i]
+    push!(bits_west, bit_west)
+    push!(bits_east, bit_east)
   end
-
-  if blocktype == "all" return best_alignment([0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0, eyeheight, heights) end
-  if blocktype == "movable_0ticks" return best_alignment([0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0, eyeheight, heights) end
-  if blocktype == "movable" return best_alignment([0,1,3,8,9,9.5,10,14,15,16]./16e0, eyeheight, heights) end
-  return []
+  swap ? (dir=dir, bits_west=bits_west, bits_east=bits_east) : (dir=dir, bits_west=bits_east, bits_east=bits_west)
 end
 
-function recursive_bounces(options::Vector{Float64}, pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, limit::Float64, eyeheight::Float32; explosionheight::Float64 = Float64(0.98f0*0.0625e0), addr::Vector{UInt8} = UInt8[])
-  positions::Vector{Float64} = tickprojectileyposlist(pos, vel, tickranges[1])
-  posout::Vector{Float64} = []
-  addressout::Vector{Vector{UInt8}} = []
-  indexout::Vector{UInt8} = []
-  deltaout::Vector{Float64} = []
-  firstaddress::UInt8 = tickranges[1][1] - 0x1
-  l::UInt8 = length(tickranges)
-  if l > 0x1
-    for i::UInt8 ∈ eachindex(positions)
-      pos = positions[i]
-      range = tickranges[0x2:l]
-      range[0x1] = range[0x1][firstaddress + i:length(range[0x1])]
-      bounces = recursive_bounces(options, pos, 1e0, range, limit, eyeheight; explosionheight=explosionheight, addr=vcat(addr, firstaddress + i))
-      if length(bounces[:addr]) > 0x0
-        addressout = vcat(addressout, bounces[:addr])
-        posout = vcat(posout, bounces[:pos])
-        indexout = vcat(indexout, bounces[:index])
-        deltaout = vcat(deltaout, bounces[:delta])
+cannon_encode(tnt_northwest::Int64, tnt_southwest::Int64, parity::Bool, bits::Vector{Int64}) = cannon_encode(tnt_northwest, tnt_southwest, parity, [bits; ones(length(bits))'])
+
+"""
+    cannon_encode(cannon, tnt_northwest, tnt_southwest, rotation, mirror)
+
+Given a cannon, tnt counts, and rotation/mirror, prints the bits to put in the ROM.
+
+See also [`cannon_destinations`](@ref).
+
+# Arguments
+- `cannon::String`: The name of the cannon.
+- `tnt_northwest::Int64`: The number of tnt in the northwest corner of the basket, or southeast if negative.
+- `tnt_northeast::Int64`: The number of tnt in the northeast corner of the basket, or southwest if negative.
+- `rotation::String`: The schematic rotation. Can be `"CW_90"`, `"CW_180"`, `"CCW_90"`, or `"NONE"`.
+- `mirror::String`: The schematic rotation. Can be `"FRONT_BACK"`, `"LEFT_RIGHT"`, or `"NONE"`.
+"""
+function cannon_encode(cannon::String, tnt_northwest::Int64, tnt_southwest::Int64, rotation::String, mirror::String)
+  parity = mirror == "FRONT_BACK" ? 0x3 : # Generate transformation from mirror
+    mirror == "LEFT_RIGHT" ? 0x1 : 0x0
+  case = rotation == "CW_90" ? 0x3 : # Generate transformation from rotation
+    rotation == "CW_180" ? 0x2 :
+    rotation == "CCW_90" ? 0x1 : 0x0
+
+  c = cannondict[cannon]
+  parity = c[:basketparity] ⊻ parity # Apply mirror transformation (litematica applies mirror before rotation)
+  parity ⊻= Bool(parity & 1) && Bool(case & 1) ? case ⊻ 0x2 : case # Apply rotation transformation
+
+  dir, bits_west, bits_east = cannon_encode(tnt_northwest, tnt_southwest, Bool(parity & 0x1), c[:bits])
+  e = [c[:bits][1,:] bits_east]'
+  w = [c[:bits][1,:] bits_west]'
+  println("Direction: $dir")
+  println("$(c[:sides][1]) side:")
+  display([c[:bits][1,:] bits_west]')
+  println("$(c[:sides][2]) side:")
+  display([c[:bits][1,:] bits_east]')
+
+  parity & 0x2 == 0x2 ? (dir, c[:sides], e, w) : (dir, c[:sides], w, e)
+end
+
+"""
+    cannon_encode(cannon, tnt_northwest, tnt_southwest)
+
+Given a cannon, tnt counts, and rotation/mirror, prints the bits to put in the ROM.
+
+# Arguments
+- `cannon::String`: The name of the cannon.
+- `tnt_northwest::Int64`: The number of tnt in the northwest corner of the basket, or southeast if negative.
+- `tnt_northeast::Int64`: The number of tnt in the northeast corner of the basket, or southwest if negative.
+"""
+cannon_encode(cannon::String, tnt_northwest::Int64, tnt_southwest::Int64) = cannon_encode(cannon::String, tnt_northwest::Int64, tnt_southwest::Int64, "NONE", "NONE")
+
+# function get_slime_bounces_with_honey(pos_::Float64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0))
+#   prevI = Tuple(0x0 for i ∈ ticks)
+#   outdelta = Float64[]
+#   outpos = Float64[]
+#   outblock = Float64[]
+#   outbounces = Tuple[]
+#   for i ∈ 1:20
+#     if i != 1 pos_ -= 0.05e0 end
+#     delta, pos, block, bounces = get_slime_bounces_internal((pos_, Float64.(prevI)...), prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight)
+#     outdelta = vcat(outdelta, delta)
+#     outpos = vcat(outpos, pos)
+#     outblock = vcat(outblock, block)
+#     outbounces = vcat(outbounces, bounces)
+#   end
+#   outdelta, outpos, outblock, outbounces
+# end
+
+function slime_bounce_pos(pos::Float64)
+  pos = pos - floor(pos)
+  delta = 0.51
+  if     0.5  < pos < 0.75 delta = 0.
+  elseif 0.25 < pos < 0.5  delta = 1.51
+  elseif 0.   < pos < 0.25 delta = 1. end
+  return delta
+end
+
+function slime_bounce_pulse(pos::Float64)
+  pos = pos - floor(pos)
+  pulse = 2
+  if 0.5 < pos < 0.75 pulse = 1 end
+  return pulse
+end
+
+function nextpostuple(index::Tuple, previndex::Tuple, positions::NTuple{N1, Float64}) where N1
+  ntuple(i -> i != 1 && index[N1-i+1] != previndex[N1-i+1] ? tickprojectiley(positions[i-1] + slime_bounce_pos(positions[i-1]), 1e0, index[N1-i+1]) : positions[i], Val(N1))
+end
+
+"""
+    get_slime_bounces(pos, ticks, threshold; eyeheight, explosionheight, minpos, maxpos)
+
+Simulates all possible slime bounces within the limits specified, and returns only those which are closer to the perfect alignment(0 vertical velocity added) than `threshold`.
+
+Returns (position::Vector{Float64}, ticks::Vector{Tuple}, delta::Vector{Float64}, block::Vector{Float64}). A negative tick number means that bounce requires a 1gt pulse.
+
+See also [`sim_bounces`](@ref).
+
+# Arguments
+- `pos::Float64`: The starting Y position.
+- `ticks::Tuple`: A list of maximum bounce lengths, in ticks, in the form (bounce 1 length, bounce 2 length, ..., bounce N length).
+- `threshold::Float64`: The biggest acceptable distance from the perfect alignment.
+- `eyeheight::Float32`: The eye height of the projectile being aligned (optional, default 0.2125f0).
+- `explosionheight::Float64`: The explosion height of the explosive (optional, default 0.061250001192092896).
+- `minpos::Float64`: The minimum acceptable projectile arrival position (optional, default -256.0).
+- `maxpos::Float64`: The minimum acceptable projectile arrival position (optional, default 256.0).
+
+# Examples
+```jldoctest
+julia> pos, ticks, delta, block = get_slime_bounces(0.0, (100, 100), 1e-4);
+
+julia> [pos ticks delta block][sortperm(delta, by=abs), :]
+34×4 Matrix{Any}:
+  15.4737    (45, 57)   -1.11176e-5   15.625
+ -34.4013    (100, 14)  -1.23203e-5  -34.25
+ -34.4013    (14, 100)  -1.23203e-5  -34.25
+[...]
+
+julia> sim_bounces(0.0, (45, 57))
+Bounced: +0.51, long pulse
+(0, 0.51, 1.0)
+(1, 1.51, 0.9600000102072954)
+[...]
+```
+"""
+function get_slime_bounces(pos::Float64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0), minpos=-256.0, maxpos=256.0)
+  prevI = Tuple(0x0 for i ∈ ticks)
+  poses = (pos, Float64.(prevI)...)
+  get_slime_bounces_internal(poses, prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight, minpos, maxpos)
+end
+
+function get_slime_bounces_internal(positions::NTuple{N, Float64}, previndex::NTuple{N1, UInt8}, iter::CartesianIndices, threshold::Float64, eyeheight::Float32, explosionheight::Float64, minpos::Float64, maxpos::Float64) where {N, N1}
+  outpos = Float64[]
+  outticks = Tuple[]
+  outdelta = Float64[]
+  outblock = Float64[]
+  yoffset = Float64(eyeheight) - explosionheight
+  changeindexsign = (index, positions) -> ntuple(i -> slime_bounce_pulse(positions[i]) == 1 ? -index[end-i+1] : index[end-i+1], length(index))
+  for index ∈ iter
+    index = Tuple(index)
+    positions = nextpostuple(index, previndex, positions) #Calculate next pos
+    previndex = index
+    if(minpos < last(positions) < maxpos)
+      block = round(last(positions) + yoffset; base = 16, digits = 1);
+      delta = last(positions) + yoffset - block;
+      if abs(delta) < threshold
+        push!(outpos, last(positions))
+        push!(outticks, changeindexsign(index, positions))
+        push!(outdelta, delta)
+        push!(outblock, block)
       end
     end
-    return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
   end
-
-  for j in 0x0:length(addr)
-    for i in eachindex(positions)
-      index, d = closestin(positions[i] + eyeheight - explosionheight, options)
-      if abs(d) < limit
-        push!(addressout, vcat(addr, firstaddress + i, j))
-        push!(posout, positions[i])
-        push!(indexout, index)
-        push!(deltaout, d)
-      end
-      positions[i] += 0.51e0
-    end
-  end
-  return (addr=addressout, pos=posout, index=indexout, delta=deltaout)
+  (outpos, outticks, outdelta, outblock)
 end
 
 """
-    calculate_all_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, entity::String, blocktype::String, threshold::Float64)
+    sim_bounces(pos::Float64, indices::Tuple)
 
-    Calculates all bounces starting at the state [pos, vel], where each bounce checks its threshold ticks from [tickranges], and within [threshold] of the explosion.
+Simulates a set of bounces listed in `indices`, starting at `pos`;
 
-    Example usage:
-    ```
-    pos, delta, block, bounces = calculate_all_bounces(0.5e0, 1e0, [0x1:0x64 for i in 1:2], "ender_pearl", "all", 1e-4);[pos delta block [[sort!(j, by=abs) for j in i.addr] for i in bounces]][sortperm(delta; by=abs),:]
-    ```
+Useful for reading the output of [`get_slime_bounces`](@ref).
+
+See also [`get_slime_bounces`](@ref).
+
+# Examples
+```jldoctest
+julia> sim_bounces(0.0, (45, 57))
+Bounced: +0.51, long pulse
+(0, 0.51, 1.0)
+(1, 1.51, 0.9600000102072954)
+(2, 2.470000010207295, 0.9204000199310483)
+(3, 3.3904000301383435, 0.8811960291799086)
+[...]
+(45, 11.035809967136265, -0.45525796911456506)
+Bounced: +1.0, long pulse
+(45, 12.035809967136265, 1.0)
+(46, 13.035809967136265, 0.9600000102072954)
+[...]
+(101, 16.1953340411928, -0.7215951635213262)
+(102, 15.473738877671474, -0.7443792180972285)
+```
 """
-function calculate_all_bounces(pos::Float64, vel::Float64, tickranges::Vector{UnitRange{UInt8}}, entity::String, blocktype::String, threshold::Float64)
-  eyeheight = 0.25f0*0.85f0
-  if entity != "ender_pearl" && entity != "snowball" && entity != "item" && entity != "fishing_bobber"
-    if entity == "tnt" eyeheight = 0f0
-    elseif entity == "arrow" eyeheight = 0.13f0
-    elseif entity == "player" eyeheight = 0.4f0
-    elseif entity == "falling_block" eyeheight = 0.98f0*0.85f0
-      else throw(ArgumentError("Invalid entity type")) end
-  end
-
-  heights::Vector{Float64} = [0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16]./16e0
-  if blocktype == "movable_0ticks" heights = [0,1,2,3,4,6,8,9,9.5,10,12,14,15,16]./16e0 end
-  if blocktype == "movable" heights = [0,1,3,8,9,9.5,10,14,15,16]./16e0 end
-
-  addr, poses, indices, deltas = recursive_bounces(heights, pos, vel, tickranges, threshold, eyeheight)
-
-  good_bounces::NamedTuple{(:pos, :delta, :block, :bounces), Tuple{Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{NamedTuple{(:addr, :pos, :vel), Tuple{Vector{Vector{Int8}}, Vector{Vector{Float64}}, Vector{Vector{Float64}}}}}}} = (pos=[], delta=[], block=[], bounces=[])
-  for i in eachindex(addr)
-    good_bounces_internal::NamedTuple{(:addr, :pos, :vel), Tuple{Vector{Vector{Int8}}, Vector{Vector{Float64}}, Vector{Vector{Float64}}}} = (addr=[], pos=[], vel=[])
-    for j in permutations(view(addr[i], 1:length(tickranges)))
-      for k in combinations([n for n ∈ 1:length(tickranges) - 1], addr[i][end])
-        py::Vector{Float64} = [pos]
-        vy::Vector{Float64} = [1e0]
-        comb::Vector{Int8} = [j[1]]
-        for l in eachindex(j)
-          ticks = tickprojectilelist(py[end], 1e0, 1:j[l])
-          py = vcat(py, ticks[:pos][1:end - 1])
-          vy = vcat(vy, ticks[:vel][1:end - 1])
-
-          mod1 = ticks[:pos][end] - floor(ticks[:pos][end])
-          if l < length(j)
-            if l ∈ k # +0.51 case
-              if mod1 > 0.5e0 && mod1 < 0.75e0 || mod1 < 0.25e0
-                @goto escape_label end
-              push!(vy, 1e0)
-              if mod1 > 0.5e0 # +0.51 case
-                push!(py, ticks[:pos][end] + 0.51e0)
-                push!(comb, j[l + 1])
-              else # + 1.51 case
-                push!(py, ticks[:pos][end])
-                push!(vy, 1e0)
-                push!(py, ticks[:pos][end] + 1.51e0)
-                push!(comb, j[l + 1] + 1)
-              end
-            else # +0 case
-              if mod1 > 0.25e0 && mod1 < 0.5e0
-                @goto escape_label end
-              push!(vy, 1e0)
-              push!(py, ticks[:pos][end])
-              if mod1 <= 0.25e0 || mod1 >= 0.75e0 # +1 case
-                push!(vy, 1e0)
-                push!(py, ticks[:pos][end] + 1e0)
-                push!(comb, j[l + 1] + 1)
-              else # +0 case
-                push!(comb, -Int8(j[l + 1]))
-              end
-            end
-          else
-              push!(vy, ticks[:vel][end])
-              push!(py, ticks[:pos][end])
-          end
-        end
-        push!(good_bounces_internal[:addr], comb)
-        push!(good_bounces_internal[:pos], py)
-        push!(good_bounces_internal[:vel], vy)
-        @label escape_label
-      end
-    end
-    if length(good_bounces_internal[:addr]) > 0
-      push!(good_bounces[:pos], poses[i])
-      push!(good_bounces[:delta], deltas[i])
-      push!(good_bounces[:block], heights[indices[i]])
-      push!(good_bounces[:bounces], good_bounces_internal)
+function sim_bounces(pos::Float64, indices::Tuple)
+  vel = 1e0
+  tick = 0
+  for bounce ∈ indices
+    slimepos, slimepulse = slime_bounce_pos(pos), slime_bounce_pulse(pos)
+    println("Bounced: +$slimepos, $(slimepulse == 1 ? "1gt" : "long") pulse")
+    pos += slimepos
+    vel = 1e0
+    println((tick, pos, vel))
+    for _ ∈ 1:bounce
+      pos += vel
+      vel *= 0.99f0
+      vel -= 0.03f0
+      tick += 1
+      println((tick, pos, vel))
     end
   end
-  good_bounces
 end
 
 end

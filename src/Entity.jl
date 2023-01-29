@@ -67,13 +67,13 @@ function tickprojectile(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1
   D = 0.99f0
   g = Float32[0, -0.03, 0]
   if ticks > 0
-    for i ∈ 1:ticks
+    for _ ∈ 1:ticks
       pos1 += vel1
       vel1 *= D
       vel1 += g
     end
   else
-    for i ∈ 1:(-ticks)
+    for _ ∈ 1:(-ticks)
       vel1 -= g
       vel1 /= D
       pos1 -= vel1
@@ -94,7 +94,7 @@ function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::U
   vel1::Vector{Float64} = vel
   posout::Vector{Vector{Float64}} = []
   velout::Vector{Vector{Float64}} = []
-  for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
+  for _ ∈ 1:(ticks[1]+length(ticks)-1)
     pos1 += vel1
     vel1 *= 0.99f0
     vel1 += [0f0, -0.03f0, 0f0]
@@ -102,50 +102,6 @@ function tickprojectilelist(pos::Vector{Float64}, vel::Vector{Float64}, ticks::U
     push!(velout, vel1);
   end
   (pos=posout[ticks], vel=velout[ticks])
-end
-
-"""
-    tickprojectilelist(pos, vel, ticks)
-
-Accurate state of a projectile in a different time, given an initial state.
-
-Returns a NamedTuple of Vectors in the form (pos::Vector{Vector{Float64}}, vel::Vector{Vector{Float64}})
-"""
-function tickprojectilelist(pos::Float64, vel::Float64, ticks::UnitRange)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
-  pos1::Float64 = pos
-  vel1::Float64 = vel
-  posout::Vector{Float64} = []
-  velout::Vector{Float64} = []
-  for Nothing ∈ 1:(ticks[1]+length(ticks)-1)
-    pos1 += vel1
-    vel1 = vel1 * 0.99f0 - 0.03f0
-    push!(posout, pos1);
-    push!(velout, vel1);
-  end
-  (pos=posout[ticks], vel=velout[ticks])
-end
-
-"""
-    tickprojectileyposlist(pos, vel, ticks)
-
-Accurate y position of a projectile in a different time, given an initial state. For internal use in CannonLib.
-
-Returns a Vector of heights.
-"""
-function tickprojectileyposlist(pos::Float64, vel::Float64, ticks::UnitRange)::Vector{Float64}
-  pos1::Float64 = pos
-  vel1::Float64 = vel
-  posout::Vector{Float64} = []
-  for Nothing ∈ 1:ticks[1]-1
-    pos1 += vel1
-    vel1 = vel1 * 0.99f0 - 0.03f0
-  end
-  for Nothing ∈ ticks
-    pos1 += vel1
-    vel1 = vel1 * 0.99f0 - 0.03f0
-    push!(posout, pos1);
-  end
-  posout
 end
 
 """
@@ -159,19 +115,37 @@ function tickprojectile!(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=
   D = 0.99f0
   g = Float32[0, -0.03, 0]
   if ticks > 0
-    for i ∈ 1:ticks
+    for _ ∈ 1:ticks
       pos += vel
       vel *= D
       vel += g
     end
   else
-    for i ∈ 1:(-ticks)
+    for _ ∈ 1:(-ticks)
       vel -= g
       vel /= D
       pos -= vel
     end
   end
   (pos=pos, vel=vel)
+end
+
+"""
+    tickprojectiley(pos, vel, ticks)
+
+Accurate state of projectile Y position after `ticks` ticks.
+
+Returns `pos::Float64`.
+"""
+function tickprojectiley(pos::Float64, vel::Float64, ticks::Int=1)::Float64
+  pos1 = pos
+  vel1 = vel
+  for _ ∈ 1:ticks
+    pos1 += vel1
+    vel1 *= 0.99f0
+    vel1 -= 0.03f0
+  end
+  pos1
 end
 
 """
@@ -206,16 +180,35 @@ function ticktnt(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::Tupl
   D = 0.98e0
   g = Float64[0, -0.04, 0]
   if ticks > 0
-    for i ∈ 1:ticks
+    for _ ∈ 1:ticks
       vel1 += g
       pos1 += vel1
       vel1 *= D
     end
   else
-    for i ∈ 1:(-ticks)
+    for _ ∈ 1:(-ticks)
       vel1 -= g
       pos1 -= vel1
       vel1 /= D
+    end
+  end
+  (pos=pos1, vel=vel1)
+end
+
+function ticktnt(pos::Float64, vel::Float64, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+  pos1 = pos
+  vel1 = vel
+  if ticks > 0
+    for _ ∈ 1:ticks
+      vel1 -= 0.04e0
+      pos1 += vel1
+      vel1 *= 0.98e0
+    end
+  else
+    for _ ∈ 1:(-ticks)
+      vel1 -= 0.04e0
+      pos1 -= vel1
+      vel1 /= 0.98e0
     end
   end
   (pos=pos1, vel=vel1)
@@ -232,13 +225,13 @@ function ticktnt!(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::Tup
   D = 0.98e0
   g = Float64[0, -0.04, 0]
   if ticks > 0
-    for i ∈ 1:ticks
+    for _ ∈ 1:ticks
       vel += g
       pos += vel
       vel *= D
     end
   else
-    for i ∈ 1:(-ticks)
+    for _ ∈ 1:(-ticks)
       vel -= g
       pos -= vel
       vel /= D
