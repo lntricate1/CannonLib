@@ -2,10 +2,10 @@
 module CannonLib
 
 include("Entity.jl")
-import .Entity.tickprojectiley
-import .Entity.projectile_pos_y_table
+import .Entity.tick_projectile_y
+import .Entity.tick_projectile_y_honey
 export blockdict, eyeheightdict, cannondict;
-export cannonangles, cannon_destinations, cannon_encode, get_slime_bounces, sim_bounces
+export cannon_angles, cannon_destinations, cannon_encode, get_slime_bounces, get_slime_bounces_with_honey, sim_bounces
 
 const blockdict = Dict([
 "all" => (0,1,1.5,2,3,4,5,6,7,8,9,9.5,10,11,12,13,14,15,16)./16 .+ 0.0625e0*0.98f0,
@@ -24,20 +24,12 @@ const cannondict = Dict([
 "ghost" => (efficiencyaxis=0.0, basketparity=false, bits=[5219 448 28 7 1;4 4 4 2 3], sides=("red", "blue")),
 ])
 
-function projectile_pos_y_table_f(range, d)
-  out::Vector{Float64} = []
-  for i ∈ range
-    push!(out, projectile_pos_y_table[i] + d)
-  end
-  out
-end
-
 """
-    cannonangles(tnt::Int)
+    cannon_angles(tnt::Int)
 
 Number of possible angles given a maximum TNT count for 1 side of the cannon.
 """
-function cannonangles(tnt::Int)
+function cannon_angles(tnt::Int)
   count::Int = 0
   for x::Int ∈ 2:(tnt-1)
     for z::Int ∈ x:tnt
@@ -171,24 +163,27 @@ Given a cannon, tnt counts, and rotation/mirror, prints the bits to put in the R
 """
 cannon_encode(cannon::String, tnt_northwest::Int64, tnt_southwest::Int64) = cannon_encode(cannon::String, tnt_northwest::Int64, tnt_southwest::Int64, "NONE", "NONE")
 
-# function get_slime_bounces_with_honey(pos_::Float64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0))
-#   prevI = Tuple(0x0 for i ∈ ticks)
-#   outdelta = Float64[]
-#   outpos = Float64[]
-#   outblock = Float64[]
-#   outbounces = Tuple[]
-#   for i ∈ 1:20
-#     if i != 1 pos_ -= 0.05e0 end
-#     delta, pos, block, bounces = get_slime_bounces_internal((pos_, Float64.(prevI)...), prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight)
-#     outdelta = vcat(outdelta, delta)
-#     outpos = vcat(outpos, pos)
-#     outblock = vcat(outblock, block)
-#     outbounces = vcat(outbounces, bounces)
-#   end
-#   outdelta, outpos, outblock, outbounces
-# end
+function get_slime_bounces_with_honey(pos_::Float64, honeyticks::Int64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0), minpos=-256.0, maxpos=256.0, maxticks=999, prehoneyticks=0)
+  prevI = Tuple(0x0 for i ∈ ticks)
+  outdelta = Float64[]
+  outpos = Float64[]
+  outblock = Float64[]
+  outbounces = Tuple[]
+  outhoney = Int64[]
+  pos_ = tick_projectile_y(pos_, 0.0, prehoneyticks)
+  starting_positions = tick_projectile_y_honey.(pos_, 0.0, 1:honeyticks)
+  for i ∈ eachindex(starting_positions)
+    pos, bounces, delta, block = _get_slime_bounces((starting_positions[i], Float64.(prevI)...), prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight, minpos, maxpos, maxticks)
+    outpos = vcat(outpos, pos)
+    for _ ∈ 1:length(pos) push!(outhoney, i) end
+    outbounces = vcat(outbounces, bounces)
+    outdelta = vcat(outdelta, delta)
+    outblock = vcat(outblock, block)
+  end
+  outpos, outhoney, outbounces, outdelta, outblock
+end
 
-function slime_bounce_pos(pos::Float64)
+function _slime_bounce_pos(pos::Float64)
   pos = pos - floor(pos)
   delta = 0.51
   if     0.5  < pos < 0.75 delta = 0.
@@ -197,21 +192,21 @@ function slime_bounce_pos(pos::Float64)
   return delta
 end
 
-function slime_bounce_pulse(pos::Float64)
+function _slime_bounce_pulse(pos::Float64)
   pos = pos - floor(pos)
   pulse = 2
   if 0.5 < pos < 0.75 pulse = 1 end
   return pulse
 end
 
-function nextpostuple(index::Tuple, previndex::Tuple, positions::NTuple{N1, Float64}) where N1
-  ntuple(i -> i != 1 && index[N1-i+1] != previndex[N1-i+1] ? tickprojectiley(positions[i-1] + slime_bounce_pos(positions[i-1]), 1e0, index[N1-i+1]) : positions[i], Val(N1))
+function _nextpostuple(index::Tuple, previndex::Tuple, positions::NTuple{N1, Float64}) where N1
+  ntuple(i -> i != 1 && index[N1-i+1] != previndex[N1-i+1] ? tick_projectile_y(positions[i-1] + _slime_bounce_pos(positions[i-1]), 1e0, index[N1-i+1]) : positions[i], Val(N1))
 end
 
 """
     get_slime_bounces(pos, ticks, threshold; eyeheight, explosionheight, minpos, maxpos)
 
-Simulates all possible slime bounces within the limits specified, and returns only those which are closer to the perfect alignment(0 vertical velocity added) than `threshold`.
+Simulates all possible slime bounces within the limits specified, and returns only those which are closer to the perfect alignment (where 0 vertical velocity added) than `threshold`.
 
 Returns (position::Vector{Float64}, ticks::Vector{Tuple}, delta::Vector{Float64}, block::Vector{Float64}). A negative tick number means that bounce requires a 1gt pulse.
 
@@ -244,22 +239,23 @@ Bounced: +0.51, long pulse
 [...]
 ```
 """
-function get_slime_bounces(pos::Float64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0), minpos=-256.0, maxpos=256.0)
+function get_slime_bounces(pos::Float64, ticks::Tuple, threshold::Float64; eyeheight::Float32=eyeheightdict["ender_pearl"], explosionheight=Float64(0.98f0*0.0625f0), minpos=-256.0, maxpos=256.0, maxticks=999)
   prevI = Tuple(0x0 for i ∈ ticks)
   poses = (pos, Float64.(prevI)...)
-  get_slime_bounces_internal(poses, prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight, minpos, maxpos)
+  _get_slime_bounces(poses, prevI, CartesianIndices(ticks), threshold, eyeheight, explosionheight, minpos, maxpos, maxticks)
 end
 
-function get_slime_bounces_internal(positions::NTuple{N, Float64}, previndex::NTuple{N1, UInt8}, iter::CartesianIndices, threshold::Float64, eyeheight::Float32, explosionheight::Float64, minpos::Float64, maxpos::Float64) where {N, N1}
+function _get_slime_bounces(positions::NTuple{N, Float64}, previndex::NTuple{N1, UInt8}, iter::CartesianIndices, threshold::Float64, eyeheight::Float32, explosionheight::Float64, minpos::Float64, maxpos::Float64, maxticks::Int64) where {N, N1}
   outpos = Float64[]
   outticks = Tuple[]
   outdelta = Float64[]
   outblock = Float64[]
   yoffset = Float64(eyeheight) - explosionheight
-  changeindexsign = (index, positions) -> ntuple(i -> slime_bounce_pulse(positions[i]) == 1 ? -index[end-i+1] : index[end-i+1], length(index))
+  changeindexsign = (index, positions) -> ntuple(i -> _slime_bounce_pulse(positions[i]) == 1 ? -index[end-i+1] : index[end-i+1], length(index))
   for index ∈ iter
     index = Tuple(index)
-    positions = nextpostuple(index, previndex, positions) #Calculate next pos
+    if sum(index) > maxticks continue end
+    positions = _nextpostuple(index, previndex, positions) #Calculate next pos
     previndex = index
     if(minpos < last(positions) < maxpos)
       block = round(last(positions) + yoffset; base = 16, digits = 1);
@@ -306,7 +302,7 @@ function sim_bounces(pos::Float64, indices::Tuple)
   vel = 1e0
   tick = 0
   for bounce ∈ indices
-    slimepos, slimepulse = slime_bounce_pos(pos), slime_bounce_pulse(pos)
+    slimepos, slimepulse = _slime_bounce_pos(pos), _slime_bounce_pulse(pos)
     println("Bounced: +$slimepos, $(slimepulse == 1 ? "1gt" : "long") pulse")
     pos += slimepos
     vel = 1e0
