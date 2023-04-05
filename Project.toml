@@ -4,4 +4,4 @@ authors = ["Ellie <intricatebread@gmail.com>"]
 version = "0.1.0"
 
 [deps]
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Memoize = "c03570c3-d221-55d1-a50c-7939bbd78826"

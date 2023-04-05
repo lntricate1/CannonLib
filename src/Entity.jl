@@ -1,41 +1,50 @@
-"A Julia library for simulating Minecraft entities"
-module Entity
+export ThrownEntity, PersistentProjectileEntity, TNTEntity
+export tick, tick_list, tick_y, tick_y_list, tick_y_honey
 
-export tick_projectile, tick_projectile_list, tick_projectile_y, tick_projectile_y_honey
-export tick_tnt, tick_tnt_list, tick_tnt_y
+abstract type Entity end
+
+abstract type ThrownEntity <: Entity end
+
+abstract type PersistentProjectileEntity <: Entity end
+
+struct TNTEntity <: Entity end
 
 """
-    tick_projectile(pos, vel, ticks)
+    tick(entitytype, pos, vel, ticks; NoGravity=false)
 
-Accurate projectile position after `ticks` ticks.
+Accurate position of an entity of type `entitytype` after `ticks` ticks.
 
 Returns a NamedTuple of (pos::Vector{Float64}, vel::Vector{Float64})
 """
-function tick_projectile(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+function tick(::Type{<:ThrownEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
   g = Float32[0, -0.03, 0]
   for _ ∈ 1:ticks
-    pos += vel
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
     vel *= 0.99f0
-    vel += g
+    if !NoGravity vel += g end
   end
   (pos=pos, vel=vel)
 end
 
 """
-    tick_projectile_list(pos, vel, ticks)
+    tick_list(entitytype, pos, vel, ticks; NoGravity=false)
 
-List of accurate positions of a projectile until `ticks`.
+List of accurate positions of an entity of type `entitytype` until `ticks`.
 
 Returns a NamedTuple of Vectors in the form (pos::Vector{Vector{Float64}}, vel::Vector{Vector{Float64}})
 """
-function tick_projectile_list(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
+function tick_list(::Type{<:ThrownEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
   posout = Vector{Float64}[]
   velout = Vector{Float64}[]
   g = Float32[0, -0.03, 0]
   for _ ∈ 1:ticks
-    pos += vel
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
     vel *= 0.99f0
-    vel += g
+    if !NoGravity vel += g end
     push!(posout, pos);
     push!(velout, vel);
   end
@@ -43,13 +52,13 @@ function tick_projectile_list(pos::Vector{Float64}, vel::Vector{Float64}, ticks:
 end
 
 """
-    tick_projectile_y(pos, vel, ticks)
+    tick_y(entitytype, pos, vel, ticks)
 
-Accurate projectile Y position after `ticks` ticks.
+Accurate Y position of an entity of type `entitytype` after `ticks` ticks.
 
 Returns a NamedTuple of (pos::Float64, vel::Float64)
 """
-function tick_projectile_y(pos::Float64, vel::Float64, ticks::Int=1)::Float64
+function tick_y(::Type{<:ThrownEntity}, pos::Float64, vel::Float64, ticks::Int)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
   for _ ∈ 1:ticks
     pos += vel
     vel *= 0.99f0
@@ -59,13 +68,47 @@ function tick_projectile_y(pos::Float64, vel::Float64, ticks::Int=1)::Float64
 end
 
 """
-    tick_projectile_y_honey(pos, vel, ticks)
+    tick_y(entitytype, pos, vel)
 
-Accurate projectile Y position after `ticks` ticks in honey.
+Accurate Y position of an entity of type `entitytype` in the next tick.
 
 Returns a NamedTuple of (pos::Float64, vel::Float64)
 """
-function tick_projectile_y_honey(pos::Float64, vel::Float64, ticks::Int=1)::Float64
+function tick_y(::Type{<:ThrownEntity}, pos::Float64, vel::Float64)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+  pos += vel
+  vel *= 0.99f0
+  vel -= 0.03f0
+  (pos=pos, vel=vel)
+end
+
+"""
+    tick_y_list(entitytype, pos, vel, ticks)
+
+List of accurate Y positions of an entity of type `entitytype` until `ticks`.
+
+Returns a NamedTuple of (pos::Vector{Float64}, vel::Vector{Float64})
+"""
+function tick_y_list(::Type{<:ThrownEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+  posout = Float64[]
+  velout = Float64[]
+  for _ ∈ 1:ticks
+    pos += vel
+    vel *= 0.99f0
+    vel -= 0.03f0
+    push!(posout, pos);
+    push!(velout, vel);
+  end
+  (pos=posout, vel=velout)
+end
+
+"""
+    tick_y_honey(entitytype, pos, vel, ticks)
+
+Accurate Y position of an entity of type `entitytype` after `ticks` ticks in honey.
+
+Returns a NamedTuple of (pos::Float64, vel::Float64)
+"""
+function tick_y_honey(::Type{<:ThrownEntity}, pos::Float64, vel::Float64, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
   for _ ∈ 1:ticks
     pos += vel
     vel *= 0.99f0
@@ -75,37 +118,87 @@ function tick_projectile_y_honey(pos::Float64, vel::Float64, ticks::Int=1)::Floa
   (pos=pos, vel=vel)
 end
 
-"""
-    tick_tnt(pos, vel, ticks)
+function tick(::Type{PersistentProjectileEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64=1; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+  g = Float32[0, -0.05, 0]
+  for _ ∈ 1:ticks
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
+    vel *= 0.99f0
+    if !NoGravity vel += g end
+  end
+  (pos=pos, vel=vel)
+end
 
-Accurate tnt position after `ticks` ticks.
+function tick_list(::Type{PersistentProjectileEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64=1; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
+  posout = Vector{Float64}[]
+  velout = Vector{Float64}[]
+  g = Float32[0, -0.05, 0]
+  for _ ∈ 1:ticks
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
+    vel *= 0.99f0
+    if !NoGravity vel += g end
+    push!(posout, pos);
+    push!(velout, vel);
+  end
+  (pos=posout, vel=velout)
+end
 
-Returns a NamedTuple of (pos::Vector{Float64}, vel::Vector{Float64})
-"""
-function tick_tnt(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+function tick_y(::Type{PersistentProjectileEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+  for _ ∈ 1:ticks
+    pos += vel
+    vel *= 0.99f0
+    vel -= 0.05f0
+  end
+  (pos=pos, vel=vel)
+end
+
+function tick_y_list(::Type{PersistentProjectileEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+  posout = Float64[]
+  velout = Float64[]
+  for _ ∈ 1:ticks
+    pos += vel
+    vel *= 0.99f0
+    vel -= 0.05f0
+    push!(posout, pos);
+    push!(velout, vel);
+  end
+  (pos=posout, vel=velout)
+end
+
+function tick_y_honey(::Type{PersistentProjectileEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+  for _ ∈ 1:ticks
+    pos += vel
+    vel *= 0.99f0
+    vel -= 0.05f0
+    if vel < -0.08e0 vel = -0.05e0 end
+  end
+  (pos=pos, vel=vel)
+end
+
+function tick(::Type{TNTEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64=1; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
   g = Float64[0, -0.04, 0]
   for _ ∈ 1:ticks
-    vel += g
-    pos += vel
+    if !NoGravity vel += g end
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
     vel *= 0.98e0
   end
   (pos=pos, vel=vel)
 end
 
-"""
-    tick_tnt_list(pos, vel, ticks)
-
-List of accurate positions of a tnt until `ticks`.
-
-Returns a NamedTuple of Vectors in the form (pos::Vector{Vector{Float64}}, vel::Vector{Vector{Float64}})
-"""
-function tick_tnt_list(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
+function tick_list(::Type{TNTEntity}, pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64=1; NoGravity::Bool=false)::NamedTuple{(:pos, :vel), Tuple{Vector{Vector{Float64}}, Vector{Vector{Float64}}}}
   posout = Vector{Float64}[]
   velout = Vector{Float64}[]
   g = Float64[0, -0.04, 0]
   for _ ∈ 1:ticks
-    vel += g
-    pos += vel
+    if !NoGravity vel += g end
+    if sum(vel.^2) > 1e-7
+      pos += vel
+    end
     vel *= 0.98e0
     push!(posout, pos);
     push!(velout, vel);
@@ -113,14 +206,7 @@ function tick_tnt_list(pos::Vector{Float64}, vel::Vector{Float64}, ticks::Int64)
   (pos=posout, vel=velout)
 end
 
-"""
-    tick_tnt_y(pos, vel, ticks)
-
-Accurate tnt Y position after `ticks` ticks.
-
-Returns a NamedTuple of (pos::Float64, vel::Float64)
-"""
-function tick_tnt_y(pos::Float64, vel::Float64, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+function tick_y(::Type{TNTEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
   for _ ∈ 1:ticks
     vel -= 0.04e0
     pos += vel
@@ -129,4 +215,25 @@ function tick_tnt_y(pos::Float64, vel::Float64, ticks::Int=1)::NamedTuple{(:pos,
   (pos=pos, vel=vel)
 end
 
+function tick_y_list(::Type{TNTEntity}, pos::Float64, vel::Float64, ticks::Int64)::NamedTuple{(:pos, :vel), Tuple{Vector{Float64}, Vector{Float64}}}
+  posout = Float64[]
+  velout = Float64[]
+  for _ ∈ 1:ticks
+    vel -= 0.04e0
+    pos += vel
+    vel *= 0.98e0
+    push!(posout, pos);
+    push!(velout, vel);
+  end
+  (pos=posout, vel=velout)
+end
+
+function tick_y_honey(::Type{TNTEntity}, pos::Float64, vel::Float64, ticks::Int=1)::NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}
+  for _ ∈ 1:ticks
+    vel -= 0.04e0
+    pos += vel
+    vel *= 0.98e0
+    if vel < -0.08e0 vel = -0.05e0 end
+  end
+  (pos=pos, vel=vel)
 end
