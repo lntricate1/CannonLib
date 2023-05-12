@@ -1,7 +1,7 @@
 name = "CannonLib"
 uuid = "7c116c79-9ae5-4432-969c-cc96ac84195a"
 authors = ["Ellie <intricatebread@gmail.com>"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 Memoize = "c03570c3-d221-55d1-a50c-7939bbd78826"
