@@ -1,6 +1,7 @@
 "A Julia library for Minecraft simulations useful for making TNT cannons"
 module CannonLib
 
+using Base: front
 using Memoize
 
 include("Entity.jl")
@@ -316,6 +317,7 @@ function _get_slime_bounces(positions::NTuple{N, Float64}, previndex::NTuple{N1,
     index = Tuple(index)
     if sum(index) > maxticks continue end
     positions = _nextpostuple(entitytype, index, previndex, positions) #Calculate next pos
+    # println(positions)
     previndex = index
     if(minpos < last(positions) < maxpos)
       block, delta = _nearestblockpos(entitytype, last(positions), explosionheight)
@@ -325,6 +327,48 @@ function _get_slime_bounces(positions::NTuple{N, Float64}, previndex::NTuple{N1,
         push!(outdelta, delta)
         push!(outblock, block)
       end
+    end
+  end
+  (outpos, outticks, outdelta, outblock)
+end
+
+export get_slime_bounces_new
+
+function get_slime_bounces_new(pos::Float64, ticks::Tuple, threshold::Float64; entitytype::Type=ThrownEntity, explosionheight=Float64(0.98f0*0.0625f0), minpos=-256.0, maxpos=256.0, maxticks=999)
+  prevI = ticks .* 0
+  pvs = [(pos = pos + 1., vel = 1e0 * 0.99f0 - 0.03f0) for _ ∈ ticks]
+  _get_slime_bounces_new(pvs, prevI, CartesianIndices(ticks), threshold, entitytype, explosionheight, minpos, maxpos, maxticks)
+end
+
+function _get_slime_bounces_new(pvs::Vector{NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}}, prevI::NTuple{N, Int}, iter::CartesianIndices, threshold::Float64, entitytype::Type, explosionheight::Float64, minpos::Float64, maxpos::Float64, maxticks::Int) where N
+  outpos = Float64[]
+  outticks = Tuple[]
+  outdelta = Float64[]
+  outblock = Float64[]
+
+  function npvbr!(pvs::Vector{NamedTuple{(:pos, :vel), Tuple{Float64, Float64}}}, ds::NTuple{N, Int}, entitytype::Type)
+    pv = last(pvs)
+    @inbounds(for i ∈ N:-1:1
+      pvs[i] = ds[i] == 0 ? pv = pvs[i] :
+               ds[i] < 0 ? (pos = _slime_bounce_pos(pv[1]) + pv[1], vel = 1.) :
+               pv = tick_y(entitytype, pvs[i][1], pvs[i][2])
+    end)
+  end
+
+  for index ∈ iter
+    I = Tuple(index)
+    npvbr!(pvs, I .- prevI, entitytype)
+    prevI = I
+    if sum(I) > maxticks continue end
+
+    pos = first(first(pvs))
+    if pos < minpos || pos > maxpos continue end
+    block, delta = _nearestblockpos(entitytype, pos, explosionheight)
+    if abs(delta) < threshold
+      push!(outpos, pos)
+      push!(outticks, (last(I) + 1, reverse(front(I) .- 1)...))
+      push!(outdelta, delta)
+      push!(outblock, block)
     end
   end
   (outpos, outticks, outdelta, outblock)
@@ -360,11 +404,13 @@ Bounced: +1.0, long pulse
 function sim_bounces(pos::Float64, indices::Tuple; entitytype::Type=ThrownEntity)
   vel = 1e0
   tick = 0
-  for bounce ∈ abs.(indices)
-    slimepos, slimepulse = _slime_bounce_pos(pos), _slime_bounce_pulse(pos)
-    println("Bounced: +$slimepos, $(slimepulse == 1 ? "1gt" : "long") pulse")
-    pos += slimepos
-    vel = 1e0
+  for (i, bounce) ∈ enumerate(indices)
+    if i != 0
+      slimepos, slimepulse = _slime_bounce_pos(pos), _slime_bounce_pulse(pos)
+      println("Bounced: +$slimepos, $(slimepulse == 1 ? "1gt" : "long") pulse")
+      pos += slimepos
+      vel = 1e0
+    end
     println((tick, pos, vel))
     pos_, vel_ = tick_y_list(entitytype, pos, vel, bounce)
     for i ∈ eachindex(pos_)
