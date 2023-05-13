@@ -61,8 +61,8 @@ Returns a NamedTuple of (pos::Float64, vel::Float64)
 function tick_y(::Type{ThrownEntity}, pos::Float64, vel::Float64, ticks::Int)
   for _ ∈ 1:ticks
     pos += vel
-    vel *= 0.99f0
-    vel -= 0.03f0
+    vel *= Float64(0.99f0)
+    vel -= Float64(0.03f0)
   end
   (pos=pos, vel=vel)
 end
