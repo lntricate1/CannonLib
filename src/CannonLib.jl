@@ -317,6 +317,26 @@ struct BounceIndex{N}
   V::NTuple{N, Float64}
 end
 
+struct BounceIndices2{N}
+  indices::NTuple{N, Int}
+  pos::Float64
+  vels::Vector{Float64}
+end
+
+struct BounceIndex2{N}
+  I::NTuple{N, Int}
+  P::NTuple{N, Float64}
+end
+
+function BounceIndices2(pos::Float64, vel::Float64, ticks::NTuple{N, Int}) where N
+  vels = Vector{Float64}(undef, maximum(ticks) - 1)
+  for i ∈ 1:maximum(ticks) - 1
+    vels[i] = vel
+    vel = vel * 0.99f0 - 0.03f0
+  end
+  return BounceIndices2(ticks, pos, vels)
+end
+
 @inline function __inc(state::NTuple{N, Int}, pos::NTuple{N, Float64}, vel::NTuple{N, Float64}, indices::NTuple{N, Int}, entity_type::Type) where N
   I = first(state)
   ts, tp, tv = Base.tail(state), Base.tail(pos), Base.tail(vel)
@@ -344,6 +364,30 @@ end
 
 @inline Base.eltype(::Type{BounceIndices{N}}) where N = BounceIndex{N}
 @inline Base.length(iter::BounceIndices{N}) where N = prod(iter.indices)
+
+@inline function __inc(state::NTuple{N, Int}, pos::NTuple{N, Float64}, vel::Vector{Float64}, indices::NTuple{N, Int}) where N
+  I = first(state)
+  ts, tp = Base.tail(state), Base.tail(pos)
+  if I < first(indices)
+    return true, (I + 1, ts...), (first(pos) + vel[I], tp...)
+  end
+  first_zero, I, P = __inc(ts, tp, vel, Base.tail(indices))
+  FP = first(P)
+  NP = first_zero ? FP + _slime_bounce_pos(FP) : FP
+  return false, (1, I...), (NP, P...)
+end
+
+@inline function Base.iterate(iter::BounceIndices2{N}) where N
+  BI = BounceIndex2(ntuple(i -> 1, Val(N)), ntuple(i -> iter.pos, Val(N)))
+  return BI, BI
+end
+
+@inline function Base.iterate(iter::BounceIndices2{N}, state::BounceIndex2{N}) where N
+  state.I == iter.indices && return nothing
+  _, I, P = __inc(state.I, state.P, iter.vels, iter.indices)
+  next = BounceIndex2(I, P)
+  return next, next
+end
 
 """
     get_slime_bounces(pos, vel, ticks, threshold; entity_type, explosion_height, min_pos, max_pos, max_ticks)
